@@ -37,6 +37,13 @@
   select { background: #ffffff22; color: var(--fg); border: 0; border-radius: 999px; padding: 8px 10px; font: inherit; }
   #saveout { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom,0px) + 120px);
     background: #fff; color: #000; font-weight: 600; padding: 14px 22px; z-index: 4; }
+  #result { position: fixed; inset: 0; z-index: 10; background: #000; display: none; flex-direction: column; align-items: center;
+    gap: 12px; padding: calc(env(safe-area-inset-top,0px) + 16px) 16px calc(env(safe-area-inset-bottom,0px) + 16px); overflow: auto; text-align: center; }
+  #result.on { display: flex; }
+  #result img, #result video { max-width: 100%; max-height: 58vh; -webkit-touch-callout: default; }
+  #result p { margin: 0; color: var(--muted); max-width: 40ch; }
+  #result a { color: var(--fg); }
+  #resshare { background: #fff; color: #000; font-weight: 600; padding: 14px 22px; }
   #flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity .25s; }
 </style>
 </head>
@@ -70,6 +77,15 @@
   <button id="rec" aria-label="Filmer"></button>
 </div>
 <button id="saveout" hidden>Enregistrer la vidéo</button>
+<div id="result">
+  <img id="resimg" alt="Photo masquée" hidden>
+  <video id="resvid" controls playsinline hidden></video>
+  <p id="reshelp"></p>
+  <button id="resshare">Partager / Enregistrer</button>
+  <p id="reserr" style="color:var(--rec)"></p>
+  <a id="resdl">Télécharger le fichier</a>
+  <button id="resclose">Fermer</button>
+</div>
 <div id="flash"></div>
 
 <script type="module">
@@ -217,15 +233,31 @@ function loop() {
   requestAnimationFrame(loop);
 }
 
-async function save(blob, name) {
-  const file = new File([blob], name, { type: blob.type });
-  if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    try { await navigator.share({ files: [file] }); return; } catch {}
-  }
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob); a.download = name; a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+// Écran de résultat : sur iPhone, le partage de fichiers échoue parfois sans rien dire ;
+// l'appui long sur l'image (« Enregistrer dans Photos ») et le téléchargement restent toujours possibles.
+let resFile = null, resUrl = null;
+function save(blob, name) {
+  if (resUrl) URL.revokeObjectURL(resUrl);
+  resFile = new File([blob], name, { type: blob.type });
+  resUrl = URL.createObjectURL(blob);
+  const isImg = blob.type.startsWith("image/");
+  $("resimg").hidden = !isImg; $("resvid").hidden = isImg;
+  if (isImg) $("resimg").src = resUrl; else $("resvid").src = resUrl;
+  $("reshelp").textContent = isImg
+    ? "Vérifie que chaque visage est caché. Pour l'enregistrer : reste appuyé sur la photo puis « Enregistrer dans Photos », ou utilise le bouton."
+    : "Vérifie la vidéo. Pour l'enregistrer : bouton ci-dessous puis « Enregistrer la vidéo ». Sinon, télécharge-la puis ouvre-la dans l'app Fichiers → Partager → Enregistrer la vidéo.";
+  $("resdl").href = resUrl; $("resdl").download = name;
+  $("reserr").textContent = "";
+  $("result").classList.add("on");
 }
+$("resshare").onclick = async () => {
+  if (!navigator.canShare || !navigator.canShare({ files: [resFile] })) {
+    $("reserr").textContent = "Ce navigateur ne permet pas de partager un fichier : utilise l'appui long ou le téléchargement."; return;
+  }
+  try { await navigator.share({ files: [resFile] }); }
+  catch (e) { if (e.name !== "AbortError") $("reserr").textContent = `Partage impossible (${e.name}) : utilise l'appui long ou le téléchargement.`; }
+};
+$("resclose").onclick = () => { $("result").classList.remove("on"); $("resvid").pause(); };
 
 const stamp = () => new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
 
