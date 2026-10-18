@@ -16,10 +16,9 @@
     font: 15px/1.4 -apple-system, system-ui, sans-serif; overflow: hidden; }
   #stage { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
   canvas { max-width: 100%; max-height: 100%; }
-  /* Vidéo source en plein écran sous le canvas (#stage noir par-dessus) : jamais visible, mais Safari iOS la décode
-     normalement. display:none bloque play() ; 1 px risque de figer les images d'un fichier. */
-  #cam { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: contain; z-index: -1; pointer-events: none; }
-  #stage { background: #000; }
+  /* pas de display:none : Safari iOS ne lit pas une vidéo masquée ainsi, play() ne se termine jamais.
+     (En plein écran sous le canvas, Safari iOS la peignait par-dessus les boutons.) */
+  #cam { position: fixed; top: 0; left: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
   #top { position: fixed; top: 0; left: 0; right: 0; display: flex; justify-content: space-between; align-items: center;
     padding: calc(env(safe-area-inset-top,0px) + 10px) 16px 10px; background: linear-gradient(#000c, #0000); gap: 10px; }
   #status { font-size: 13px; color: var(--muted); }
@@ -37,6 +36,8 @@
   #start p { max-width: 34ch; color: var(--muted); margin: 0; }
   #go { background: #fff; color: #000; font-weight: 600; padding: 14px 26px; }
   select { background: #ffffff22; color: var(--fg); border: 0; border-radius: 999px; padding: 8px 10px; font: inherit; }
+  #runvid { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom,0px) + 120px);
+    background: #fff; color: #000; font-weight: 600; padding: 14px 22px; z-index: 4; }
   #saveout { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom,0px) + 120px);
     background: #fff; color: #000; font-weight: 600; padding: 14px 22px; z-index: 4; }
   #result { position: fixed; inset: 0; z-index: 10; background: #000; display: none; flex-direction: column; align-items: center;
@@ -78,6 +79,7 @@
   <button id="shot" aria-label="Prendre une photo"></button>
   <button id="rec" aria-label="Filmer"></button>
 </div>
+<button id="runvid" hidden>Lancer le masquage de la vidéo</button>
 <button id="saveout" hidden>Enregistrer la vidéo</button>
 <div id="result">
   <img id="resimg" alt="Photo masquée" hidden>
@@ -186,7 +188,7 @@ const startLoop = () => { if (!looping) { looping = true; loop(); } };
 
 async function openCam() {
   if (stream) stream.getTracks().forEach(t => t.stop());
-  still = null; memory = []; video.removeAttribute("src"); video.muted = true; $("saveout").hidden = true;
+  still = null; memory = []; video.removeAttribute("src"); video.muted = true; $("saveout").hidden = true; $("runvid").hidden = true; $("shot").disabled = false;
   stream = await navigator.mediaDevices.getUserMedia({
     video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: true
   }).catch(() => navigator.mediaDevices.getUserMedia({ video: { facingMode: facing }, audio: false }));
@@ -302,7 +304,7 @@ $("rec").onclick = () => {
 async function openFile(file) {
   if (!file || (recorder && recorder.state === "recording")) return;
   if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
-  memory = []; $("saveout").hidden = true;
+  memory = []; $("saveout").hidden = true; $("runvid").hidden = true; $("shot").disabled = false;
   const url = URL.createObjectURL(file);
   if (file.type.startsWith("image/")) {
     const img = new Image(); img.src = url; await img.decode();
@@ -315,16 +317,24 @@ async function openFile(file) {
     return;
   }
   still = null; video.srcObject = null; video.src = url; video.muted = false;
+  $("shot").disabled = true; // pendant le traitement, le rond blanc ferait une simple photo
+  // Lecture lancée par un appui : sans geste, Safari iOS joue la vidéo sans le son
+  // puis met en pause une vidéo muette quasi invisible → image figée.
+  $("runvid").hidden = false;
+}
+
+$("runvid").onclick = async () => {
+  $("runvid").hidden = true;
   if (!audioCtx) {
     audioCtx = new AudioContext(); audioDest = audioCtx.createMediaStreamDestination();
     audioCtx.createMediaElementSource(video).connect(audioDest); // le son part dans l'enregistrement, pas dans le haut-parleur
   }
   audioCtx.resume();
+  video.currentTime = 0; memory = [];
   await video.play().catch(() => { video.muted = true; return video.play(); }); // sans son si Safari refuse
   video.onended = () => recorder && recorder.state === "recording" && recorder.stop();
-  $("shot").disabled = true; // pendant le traitement, le rond blanc ferait une simple photo
   startRec(audioDest.stream.getAudioTracks());
-}
+};
 
 document.querySelectorAll(".pick").forEach(b => b.onclick = () => $("file").click());
 $("file").onchange = async () => {
