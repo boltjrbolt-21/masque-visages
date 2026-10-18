@@ -54,6 +54,7 @@
 <div id="top">
   <span id="status">Chargement…</span>
   <select id="pad" aria-label="Marge du masque">
+    <option value="0.2">Marge 20 %</option>
     <option value="0.25">Marge 25 %</option>
     <option value="0.5" selected>Marge 50 %</option>
     <option value="0.8">Marge 80 %</option>
@@ -136,7 +137,8 @@ function loop() {
     const pad = parseFloat($("pad").value);
     ctx.fillStyle = "#000";
     // Ovale inscrit dans l'ancien rectangle : couvre encore les 4 coins de la boîte détectée
-    // (pire cas, marge 25 % : 0,91 < 1) et libère ~21 % d'image (π/4 du rectangle).
+    // (marge 25 % : 0,91 < 1 ; à 20 %, 1,04 : les coins bas de la boîte, à côté du menton, sont effleurés)
+    // et libère ~21 % d'image (π/4 du rectangle).
     ctx.beginPath();
     for (const { b } of memory) {
       const px = b.width * pad, py = b.height * pad;
