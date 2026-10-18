@@ -16,8 +16,10 @@
     font: 15px/1.4 -apple-system, system-ui, sans-serif; overflow: hidden; }
   #stage { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
   canvas { max-width: 100%; max-height: 100%; }
-  /* pas de display:none : Safari iOS ne lit pas une vidéo masquée ainsi, play() ne se termine jamais */
-  video { position: fixed; top: 0; left: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  /* Vidéo source en plein écran sous le canvas (#stage noir par-dessus) : jamais visible, mais Safari iOS la décode
+     normalement. display:none bloque play() ; 1 px risque de figer les images d'un fichier. */
+  #cam { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: contain; z-index: -1; pointer-events: none; }
+  #stage { background: #000; }
   #top { position: fixed; top: 0; left: 0; right: 0; display: flex; justify-content: space-between; align-items: center;
     padding: calc(env(safe-area-inset-top,0px) + 10px) 16px 10px; background: linear-gradient(#000c, #0000); gap: 10px; }
   #status { font-size: 13px; color: var(--muted); }
@@ -277,7 +279,10 @@ function startRec(audioTracks) {
   recorder.onstop = () => {
     $("rec").classList.remove("on");
     const blob = new Blob(chunks, { type: recorder.mimeType });
-    offerSave(blob, `video-${stamp()}.${recorder.mimeType.includes("mp4") ? "mp4" : "webm"}`, "Enregistrer la vidéo");
+    const name = `video-${stamp()}.${recorder.mimeType.includes("mp4") ? "mp4" : "webm"}`;
+    offerSave(blob, name, "Enregistrer la vidéo");
+    $("shot").disabled = false;
+    save(blob, name); // ouvre directement l'écran de résultat avec la vidéo masquée
   };
   recorder.start(500);
   $("rec").classList.add("on");
@@ -317,6 +322,7 @@ async function openFile(file) {
   audioCtx.resume();
   await video.play().catch(() => { video.muted = true; return video.play(); }); // sans son si Safari refuse
   video.onended = () => recorder && recorder.state === "recording" && recorder.stop();
+  $("shot").disabled = true; // pendant le traitement, le rond blanc ferait une simple photo
   startRec(audioDest.stream.getAudioTracks());
 }
 
