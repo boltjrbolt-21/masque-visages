@@ -79,8 +79,8 @@ async function loadDetector() {
     baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite", delegate: d },
     runningMode: "VIDEO", minDetectionConfidence: 0.3, minSuppressionThreshold: 0.3
   });
-  try { detector = await FaceDetector.createFromOptions(fs, opts("GPU")); }
-  catch { detector = await FaceDetector.createFromOptions(fs, opts("CPU")); }
+  // CPU : le délégué GPU peut bloquer sans erreur sur Safari iOS ; BlazeFace reste rapide sur CPU
+  detector = await FaceDetector.createFromOptions(fs, opts("CPU"));
 }
 
 async function openCam() {
@@ -158,7 +158,8 @@ $("flip").onclick = async () => {
 $("go").onclick = async () => {
   $("go").disabled = true; $("go").textContent = "Chargement du détecteur…";
   try {
-    await Promise.all([loadDetector(), openCam()]);
+    const timeout = new Promise((_, ko) => setTimeout(() => ko(new Error("le détecteur ne répond pas après 40 s")), 40000));
+    await Promise.race([Promise.all([loadDetector(), openCam()]), timeout]);
     $("start").hidden = true;
     loop();
   } catch (e) {
