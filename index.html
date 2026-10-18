@@ -16,7 +16,8 @@
     font: 15px/1.4 -apple-system, system-ui, sans-serif; overflow: hidden; }
   #stage { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
   canvas { max-width: 100%; max-height: 100%; }
-  video { display: none; }
+  /* pas de display:none : Safari iOS ne lit pas une vidéo masquée ainsi, play() ne se termine jamais */
+  video { position: fixed; top: 0; left: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
   #top { position: fixed; top: 0; left: 0; right: 0; display: flex; justify-content: space-between; align-items: center;
     padding: calc(env(safe-area-inset-top,0px) + 10px) 16px 10px; background: linear-gradient(#000c, #0000); gap: 10px; }
   #status { font-size: 13px; color: var(--muted); }
@@ -159,11 +160,12 @@ $("go").onclick = async () => {
   $("go").disabled = true; $("go").textContent = "Chargement du détecteur…";
   try {
     const timeout = new Promise((_, ko) => setTimeout(() => ko(new Error("le détecteur ne répond pas après 40 s")), 40000));
-    await Promise.race([Promise.all([loadDetector(), openCam()]), timeout]);
+    const step = (p, nom) => p.then(() => { $("err").textContent += nom + " OK · "; });
+    await Promise.race([Promise.all([step(loadDetector(), "détecteur"), step(openCam(), "caméra")]), timeout]);
     $("start").hidden = true;
     loop();
   } catch (e) {
-    $("err").textContent = "Impossible d'ouvrir la caméra : " + e.message + " (la page doit être servie en HTTPS).";
+    $("err").textContent += "Échec : " + e.message;
     $("go").disabled = false; $("go").textContent = "Réessayer";
   }
 };
