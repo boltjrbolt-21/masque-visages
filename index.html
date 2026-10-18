@@ -162,7 +162,7 @@ $("go").onclick = async () => {
     const timeout = new Promise((_, ko) => setTimeout(() => ko(new Error("le détecteur ne répond pas après 40 s")), 40000));
     const step = (p, nom) => p.then(() => { $("err").textContent += nom + " OK · "; });
     await Promise.race([Promise.all([step(loadDetector(), "détecteur"), step(openCam(), "caméra")]), timeout]);
-    $("start").hidden = true;
+    $("start").style.display = "none"; // .hidden ne suffit pas : le CSS #start impose display:flex
     loop();
   } catch (e) {
     $("err").textContent += "Échec : " + e.message;
