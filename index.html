@@ -35,6 +35,8 @@
   #start p { max-width: 34ch; color: var(--muted); margin: 0; }
   #go { background: #fff; color: #000; font-weight: 600; padding: 14px 26px; }
   select { background: #ffffff22; color: var(--fg); border: 0; border-radius: 999px; padding: 8px 10px; font: inherit; }
+  #saveout { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom,0px) + 120px);
+    background: #fff; color: #000; font-weight: 600; padding: 14px 22px; z-index: 4; }
   #flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity .25s; }
 </style>
 </head>
@@ -67,6 +69,7 @@
   <button id="shot" aria-label="Prendre une photo"></button>
   <button id="rec" aria-label="Filmer"></button>
 </div>
+<button id="saveout" hidden>Enregistrer la vidéo</button>
 <div id="flash"></div>
 
 <script type="module">
@@ -75,6 +78,13 @@ import { FaceDetector, PoseLandmarker, FilesetResolver } from "https://cdn.jsdel
 const $ = id => document.getElementById(id);
 const video = $("cam"), out = $("out"), ctx = out.getContext("2d");
 let detector, pose, stream, facing = "environment", recorder, chunks = [];
+let lastOut = null; // dernière photo/vidéo masquée, enregistrée sur appui (Safari exige un geste pour ouvrir le partage)
+function offerSave(blob, name, label) { lastOut = { blob, name }; $("saveout").textContent = label; $("saveout").hidden = false; }
+// Fichier prêt d'avance : un toBlob() lancé au moment de l'appui ferait perdre le geste à Safari.
+async function preparePhoto() {
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); // laisse la boucle dessiner les masques
+  out.toBlob(b => still && offerSave(b, `photo-${stamp()}.jpg`, "Enregistrer la photo"), "image/jpeg", 0.92);
+}
 let still = null, stillBoxes = [], busy = false, fs, faceImg, poseImg, ready, looping = false, audioCtx, audioDest; // still : photo chargée, affichée à la place de la vidéo
 let memory = [];            // boîtes récentes, gardées quelques images pour éviter les "trous"
 const HOLD_MS = 600;        // un visage reste masqué 0,6 s après sa dernière détection
@@ -155,7 +165,7 @@ const startLoop = () => { if (!looping) { looping = true; loop(); } };
 
 async function openCam() {
   if (stream) stream.getTracks().forEach(t => t.stop());
-  still = null; memory = []; video.removeAttribute("src"); video.muted = true;
+  still = null; memory = []; video.removeAttribute("src"); video.muted = true; $("saveout").hidden = true;
   stream = await navigator.mediaDevices.getUserMedia({
     video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: true
   }).catch(() => navigator.mediaDevices.getUserMedia({ video: { facingMode: facing }, audio: false }));
@@ -197,7 +207,8 @@ function loop() {
       ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, 2 * Math.PI);
     }
     ctx.fill();
-    $("status").textContent = n ? `${n} visage${n > 1 ? "s" : ""} masqué${n > 1 ? "s" : ""}` : "Aucun visage";
+    const prog = !still && video.src && !video.ended && video.duration ? `Traitement ${Math.round(video.currentTime / video.duration * 100)} % · ` : "";
+    $("status").textContent = prog + (n ? `${n} visage${n > 1 ? "s" : ""} masqué${n > 1 ? "s" : ""}` : "Aucun visage");
     $("status").className = n ? "ok" : "";
   }
   requestAnimationFrame(loop);
@@ -221,6 +232,7 @@ $("shot").onclick = () => {
 };
 
 function startRec(audioTracks) {
+  $("saveout").hidden = true;
   const s = out.captureStream(30);
   audioTracks.forEach(t => s.addTrack(t));
   const type = ["video/mp4", "video/webm;codecs=vp9", "video/webm"].find(t => MediaRecorder.isTypeSupported(t)) || "";
@@ -230,11 +242,14 @@ function startRec(audioTracks) {
   recorder.onstop = () => {
     $("rec").classList.remove("on");
     const blob = new Blob(chunks, { type: recorder.mimeType });
-    save(blob, `video-${stamp()}.${recorder.mimeType.includes("mp4") ? "mp4" : "webm"}`);
+    offerSave(blob, `video-${stamp()}.${recorder.mimeType.includes("mp4") ? "mp4" : "webm"}`, "Enregistrer la vidéo");
   };
   recorder.start(500);
   $("rec").classList.add("on");
 }
+
+$("pad").onchange = () => still && preparePhoto(); // nouvelle marge = nouveau fichier
+$("saveout").onclick = () => lastOut && save(lastOut.blob, lastOut.name);
 
 $("rec").onclick = () => {
   if (recorder && recorder.state === "recording") { recorder.stop(); return; }
@@ -247,7 +262,7 @@ $("rec").onclick = () => {
 async function openFile(file) {
   if (!file || (recorder && recorder.state === "recording")) return;
   if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
-  memory = [];
+  memory = []; $("saveout").hidden = true;
   const url = URL.createObjectURL(file);
   if (file.type.startsWith("image/")) {
     const img = new Image(); img.src = url; await img.decode();
@@ -256,6 +271,7 @@ async function openFile(file) {
     busy = true;
     try { stillBoxes = await detectStill(img); } finally { busy = false; }
     still = img; // affichée seulement une fois les masques prêts : jamais de photo démasquée à l'écran
+    preparePhoto();
     return;
   }
   still = null; video.srcObject = null; video.src = url; video.muted = false;
